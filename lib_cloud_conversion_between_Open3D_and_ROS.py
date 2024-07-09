@@ -34,6 +34,10 @@ convert_rgbUint32_to_tuple = lambda rgb_uint32: (
 convert_rgbFloat_to_tuple = lambda rgb_float: convert_rgbUint32_to_tuple(
     int(cast(pointer(c_float(rgb_float)), POINTER(c_uint32)).contents.value)
 )
+convert_rgbaUint32_to_tuple = lambda rgb_uint32: (
+    (rgb_uint32 & 0x00ff0000)>>16, (rgb_uint32 & 0x0000ff00)>>8, (rgb_uint32 & 0x000000ff), (rgb_uint32 & 0xff000000)>>24
+)
+
 
 # Convert the datatype of point cloud from Open3D to ROS PointCloud2 (XYZRGB only)
 def convertCloudFromOpen3dToRos(open3d_cloud, frame_id="odom"):
@@ -70,27 +74,39 @@ def convertCloudFromRosToOpen3d(ros_cloud):
         print("Converting an empty cloud")
         return None
 
+    label = None
     # Set open3d_cloud
     # print("field_names: ", field_names)
-    if "rgba" in field_names:
-        IDX_RGB_IN_FIELD=3 # x, y, z, rgb
-        
-        # Get xyz
-        xyz = [(x,y,z) for x,y,z,rgba in cloud_data ] # (why cannot put this line below rgb?)
+    # if "rgba" in field_names:
+    IDX_RGB_IN_FIELD=3 # x, y, z, rgb
+    
+    # Get xyz
+    xyz = np.array([(x,y,z) for x,y,z,rgba in cloud_data ]) # (why cannot put this line below rgb?)
 
-        # Get rgb
-        # Check whether int or float
-        if type(cloud_data[0][IDX_RGB_IN_FIELD])==float: # if float (from pcl::toROSMsg)
-            rgb = [convert_rgbFloat_to_tuple(rgba)[0:3] for x,y,z,rgba in cloud_data ]
-        else:
-            rgb = [convert_rgbUint32_to_tuple(rgba)[0:3] for x,y,z,rgba in cloud_data ]
+    # Get rgba
+    rgba = [convert_rgbaUint32_to_tuple(rgba) for x,y,z,rgba in cloud_data ]
+    
+    # print("a: ",np.array(rgba)[:,3])
+    rgba = np.array(rgba)
+    rgb = np.array(rgba)[:,0:3]
 
-        # combine
-        open3d_cloud.points = open3d.utility.Vector3dVector(np.array(xyz))
-        open3d_cloud.colors = open3d.utility.Vector3dVector(np.array(rgb)/255.0)
-    else:
-        xyz = [(x,y,z) for x,y,z in cloud_data ] # get xyz
-        open3d_cloud.points = open3d.utility.Vector3dVector(np.array(xyz))
+    label = 255 - np.array(rgba)[:,3]
+    
+    open3d_cloud.points = open3d.utility.Vector3dVector( xyz )
+    open3d_cloud.colors = open3d.utility.Vector3dVector( rgb/255.0 )
+
+
+    segmented_pointclouds = []
+    # 0 for background, 1 for active object, 2 for passive object
+    for class_idx in range(3):
+        object_idxs = np.where(label == class_idx)
+        object_xyz = xyz[object_idxs]
+        object_rgb = rgb[object_idxs]
+        object_pcd = open3d.geometry.PointCloud()
+        object_pcd.points = open3d.utility.Vector3dVector( object_xyz)
+        object_pcd.colors = open3d.utility.Vector3dVector( object_rgb/255.0 )
+        segmented_pointclouds.append(object_pcd)
+
 
     # return
-    return open3d_cloud
+    return open3d_cloud, label, segmented_pointclouds

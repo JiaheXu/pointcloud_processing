@@ -1,2 +1,5 @@
 ./data
+./mug
+./pics
+*.bag
 __pycache__

@@ -43,19 +43,20 @@ def main():
     args = parser.parse_args()
     bagIn = rosbag.Bag(args.bag_in, "r")
 
-
     count = 0
+    downpcd = None
     for topic, msg, t in bagIn.read_messages(topics=["/object_point_cloud2"]):
-        pcd = convertCloudFromRosToOpen3d( msg )
+        pcd,label = convertCloudFromRosToOpen3d( msg )
         # print(o3d_pcd)
-        downpcd = pcd.voxel_down_sample(voxel_size=0.005)
-        print("downpcd: ", downpcd)
-        cl, ind = downpcd.remove_radius_outlier(nb_points=8, radius=0.008)
-        display_inlier_outlier(downpcd, ind)
-        # downpcd = pcd.uniform_down_sample( every_k_points=5 )
+        # downpcd = pcd.voxel_down_sample(voxel_size=0.005)
+        # print("downpcd: ", downpcd)
+        # cl, ind = downpcd.remove_radius_outlier(nb_points=8, radius=0.008)
+        # display_inlier_outlier(downpcd, ind)
+
+        downpcd = pcd.uniform_down_sample( every_k_points=5 )
         # o3d.visualization.draw_geometries([downpcd])
         count += 1
-
+    o3d.io.write_point_cloud("mug1.ply", downpcd)
     print(count)
 
     bagIn.close()
