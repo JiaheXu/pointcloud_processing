@@ -53,53 +53,53 @@ class Projector:
                         depth_scale,
                         depth_max
                         ):
-        depth = 2.0*np.ones((height, width, 1), dtype = float)
+        depth = 10.0*np.ones((height, width, 1), dtype = float)
         color = np.zeros((height, width, 3), dtype=np.uint8)
 
-        for obj in range(0,3):
-            obj_idxs = np.where(self.label == obj)[0]
-            for i in obj_idxs:
-                print(i)
-                point4d = np.append(self.points[i], 1)
-                new_point4d = np.matmul(extrinsic, point4d)
-                point3d = new_point4d[:-1]
-                zc = point3d[2]
-                new_point3d = np.matmul(intrinsic, point3d)
-                new_point3d = new_point3d/new_point3d[2]
-                u = int(round(new_point3d[0]))
-                v = int(round(new_point3d[1]))
+        # object order works, but not general
+        # for obj in range(0,3):
+        #     obj_idxs = np.where(self.label == obj)[0]
+        #     for i in obj_idxs:
+        #         print(i)
+        #         point4d = np.append(self.points[i], 1)
+        #         new_point4d = np.matmul(extrinsic, point4d)
+        #         point3d = new_point4d[:-1]
+        #         zc = point3d[2]
+        #         new_point3d = np.matmul(intrinsic, point3d)
+        #         new_point3d = new_point3d/new_point3d[2]
+        #         u = int(round(new_point3d[0]))
+        #         v = int(round(new_point3d[1]))
 
-                # Fixed u, v checks. u should be checked for width
-                if (u < 0 or u > width - 1 or v < 0 or v > height - 1 or zc <= 0 or zc > depth_max):
-                    continue
-                # if(zc > depth[u][v]):
-                #     continue
+        #         # Fixed u, v checks. u should be checked for width
+        #         if (u < 0 or u > width - 1 or v < 0 or v > height - 1 or zc <= 0 or zc > depth_max):
+        #             continue
+        #         if(zc > depth[v][u]):
+        #             continue
 
-                depth[v, u ] = float(zc)
-                color[v, u, :] = self.colors[i] * 255
+        #         depth[v, u ] = float(zc)
+        #         color[v, u, :] = self.colors[i] * 255
 
-        # for i in range(0, self.n):
-        #     point4d = np.append(self.points[i], 1)
-        #     new_point4d = np.matmul(extrinsic, point4d)
-        #     point3d = new_point4d[:-1]
-        #     zc = point3d[2]
-        #     new_point3d = np.matmul(intrinsic, point3d)
-        #     new_point3d = new_point3d/new_point3d[2]
-        #     u = int(round(new_point3d[0]))
-        #     v = int(round(new_point3d[1]))
 
-        #     # Fixed u, v checks. u should be checked for width
-        #     if (u < 0 or u > width - 1 or v < 0 or v > height - 1 or zc <= 0 or zc > depth_max):
-        #         continue
-        #     if(zc > depth[u][v]):
-        #         continue
 
-        #     depth[v, u ] = float(zc)
-        #     color[v, u, :] = self.colors[i] * 255
-        # im_color = o3d.geometry.Image(color)
-        # im_depth = o3d.geometry.Image(depth)
-        # rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(
-            # im_color, im_depth, depth_scale=1000.0, depth_trunc=depth_max, convert_rgb_to_intensity=False)
+        for i in range(0, self.n):
+            point4d = np.append(self.points[i], 1)
+            new_point4d = np.matmul(extrinsic, point4d)
+            point3d = new_point4d[:-1]
+            zc = point3d[2]
+            new_point3d = np.matmul(intrinsic, point3d)
+            new_point3d = new_point3d/new_point3d[2]
+            u = int(round(new_point3d[0]))
+            v = int(round(new_point3d[1]))
+
+            # Fixed u, v checks. u should be checked for width
+            if (u < 0 or u > width - 1 or v < 0 or v > height - 1 or zc <= 0.0 or zc > depth_max):
+                continue
+            if(zc > depth[v][u]):
+                continue
+
+            depth[v, u ] = float(zc)
+            color[v, u, :] = self.colors[i] * 255
+
         return color, depth
 
 
@@ -216,6 +216,15 @@ def get_transform( trans, quat):
     t[:3, 3] = trans
     return t
 
+def get_cube_corners( bound_box ):
+    corners = []
+    corners.append( [ bound_box[0][0], bound_box[1][0], bound_box[2][0] ])
+    corners.append( [ bound_box[0][0], bound_box[1][1], bound_box[2][0] ])
+    corners.append( [ bound_box[0][1], bound_box[1][1], bound_box[2][0] ])
+    corners.append( [ bound_box[0][1], bound_box[1][0], bound_box[2][0] ])
+
+    return corners
+
 def main():
     
     parser = argparse.ArgumentParser(description="extract interested object and traj from rosbag")
@@ -254,30 +263,51 @@ def main():
     
     # cam_extrinsic = inv(cam_extrinsics[0])
 
-
+    # min_bound = np.array([-0.2, -1.0, 0.0])
+    # max_bound = np.array([ 0.4,  1.0, 0.6])
+    bound_box = np.array( [ [-0.2, 0.35], [ -1.0 , 1.0], [ -0.1 , 0.4] ] )
+    vol = o3d.visualization.SelectionPolygonVolume()
+    vol.orthogonal_axis = "Z"
+    vol.axis_max = 1.0
+    vol.axis_min = -1.0
     ply_point_cloud = o3d.data.PLYPointCloud()
     object_pcd = o3d.io.read_point_cloud("./mug1.ply")
+
     # object_pcd = object_pcd.uniform_down_sample( every_k_points=5 )
     # print(pcd)
     # print(np.asarray(pcd.points))
     # o3d.visualization.draw_geometries([object_pcd])
+    corners = get_cube_corners(bound_box)
+    # for i in range(0,2):
+    #     for j in range(0,2):
+    #         for k in range(0,2):       
+    #             corners.append( [ bound_box[0][i], bound_box[1][j], bound_box[2][k] ] )
+    corners = np.array(corners)
+    bounding_polygon = corners.astype("float64")
+
     obj_name = "mug"
     idx = 0
     tmp_F_reg = np.eye(4)
+
     for topic, msg, t in bagIn.read_messages(topics=["/segmented_pointcloud"]):
         idx += 1
         if( idx != 1):
             continue
         pcd, label, segmented_pointclouds = convertCloudFromRosToOpen3d( msg )
+        o3d.visualization.draw_geometries([pcd])
+  
         
-        # o3d.visualization.draw_geometries([pcd])
 
-        p = Projector(pcd, label)
-        # rgbd = p.project_to_rgbd(1920,1080, cam_intrinsic, cam_extrinsic, 1000,10)
-        for cam_idx, cam_extrinsic in enumerate(cam_extrinsics,0):
-            rgb, depth = p.project_to_rgbd(256, 256, cam_intrinsic, inv(cam_extrinsic), 1000,10)
-            data = im.fromarray(rgb) 
-            data.save('cam{}_img{}.png'.format(cam_idx,idx)) 
+        vol.bounding_polygon = o3d.utility.Vector3dVector(bounding_polygon)
+        cropped_pcd = vol.crop_point_cloud(pcd)
+        o3d.visualization.draw_geometries([cropped_pcd])
+
+        # p = Projector(pcd, label)
+
+        # for cam_idx, cam_extrinsic in enumerate(cam_extrinsics,0):
+        #     rgb, depth = p.project_to_rgbd(256, 256, cam_intrinsic, inv(cam_extrinsic), 1000,10)
+        #     data = im.fromarray(rgb) 
+        #     data.save('cam{}_img{}.png'.format(cam_idx,idx)) 
 
         # for pcd in segmented_pointclouds:
             # print(pcd)
