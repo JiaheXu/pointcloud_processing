@@ -192,19 +192,33 @@ def colored_ICP(source, target):
 def main():
     
     parser = argparse.ArgumentParser(description="extract interested object and traj from rosbag")
-    parser.add_argument("-b", "--bag_in", default="./data/yellow_handle_mug.bag",  help="Input ROS bag name.")
+    # parser.add_argument("-b", "--bag_in", default="./data/yellow_handle_mug.bag",  help="Input ROS bag name.")
+    parser.add_argument("-b", "--bag_in", default="./segmented_mug_traj1.bag",  help="Input ROS bag name.")
     parser.add_argument("-o", "--goal_object", default="mug", help="name of intereseted object")
-    # parser.add_argument("-b", "--bag_in", default="traj1.bag"  help="Input ROS bag name.")
+    # parser.add_argument("-b", "--bag_in", default="traj1.bag",  help="Input ROS bag name.")
     
     args = parser.parse_args()
     bagIn = rosbag.Bag(args.bag_in, "r")
     count = 0
     
+    # cam_intrinsic = np.array([
+    #         [490, 0., 640],
+    #         [0. ,490,  360],
+    #         [0., 0., 1.0]
+    #     ])
+    
+    # cam_intrinsic = np.array([
+    #         [245, 0., 320],
+    #         [0. ,245,  180],
+    #         [0., 0., 1.0]
+    #     ])
+
     cam_intrinsic = np.array([
-            [738.52671777, 0., 959.40116984],
-            [0. ,739.11251938,  575.51338683],
+            [80, 0., 128],
+            [0. ,80,  128],
             [0., 0., 1.0]
         ])
+
     cam_extrinsic = np.array( [[ 0.05445081, -0.61150575,  0.7893642,  -0.336     ],
             [-0.99848606, -0.03951354,  0.03826576,  0.06      ],
             [ 0.00779084, -0.79025275, -0.61273151,  0.455     ],
@@ -214,26 +228,28 @@ def main():
 
     ply_point_cloud = o3d.data.PLYPointCloud()
     object_pcd = o3d.io.read_point_cloud("./mug1.ply")
-    object_pcd = object_pcd.uniform_down_sample( every_k_points=5 )
+    # object_pcd = object_pcd.uniform_down_sample( every_k_points=5 )
     # print(pcd)
     # print(np.asarray(pcd.points))
-    # o3d.visualization.draw_geometries([object_pcd])
+    o3d.visualization.draw_geometries([object_pcd])
     obj_name = "mug"
     idx = 0
     tmp_F_reg = np.eye(4)
     for topic, msg, t in bagIn.read_messages(topics=["/segmented_pointcloud"]):
         idx += 1
-        if( idx <7):
-            continue
+        # if( idx <7):
+        #     continue
         pcd, label, segmented_pointclouds = convertCloudFromRosToOpen3d( msg )
-        # p = Projector(pcd)
+        p = Projector(pcd)
         # rgbd = p.project_to_rgbd(1920,1080, cam_intrinsic, cam_extrinsic, 1000,10)
+        rgbd = p.project_to_rgbd(256, 256, cam_intrinsic, cam_extrinsic, 1000,10)
+
         # print(rgbd)
-        # o3d.io.write_image( 'img{}.png'.format(idx) ,rgbd.color )
+        o3d.io.write_image( 'img{}.png'.format(idx) ,rgbd.color )
         # for pcd in segmented_pointclouds:
             # print(pcd)
 
-        o3d.visualization.draw_geometries([segmented_pointclouds[1]])
+        # o3d.visualization.draw_geometries([segmented_pointclouds[1]])
 
         # downpcd = segmented_pointclouds[1].uniform_down_sample( every_k_points=10 )
         # o3d.io.write_point_cloud("moved_mug1.ply", downpcd)
