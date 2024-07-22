@@ -7,7 +7,7 @@ pcd_obs_env with:
 """
 
 import numpy as np
-
+from PIL import Image as im 
 import os
 import argparse
 from sensor_msgs.msg import Image
@@ -27,7 +27,7 @@ from sensor_msgs.msg import PointCloud2, PointField
 import sensor_msgs.point_cloud2 as pc2
 from numpy.linalg import inv
 from lib_cloud_conversion_between_Open3D_and_ROS import convertCloudFromRosToOpen3d
-
+from scipy.spatial.transform import Rotation
 
 # ICP
 from KD_tree import *
@@ -37,11 +37,12 @@ from cartesian import *
 colors = ['tab:red' ,'tab:blue', 'tab:orange', 'tab:green']
 
 class Projector:
-    def __init__(self, cloud) -> None:
+    def __init__(self, cloud, label = None) -> None:
         self.cloud = cloud
         self.points = np.asarray(cloud.points)
         self.colors = np.asarray(cloud.colors)
         self.n = len(self.points)
+        self.label = label
 
     # intri 3x3, extr 4x4
     def project_to_rgbd(self,
@@ -52,32 +53,54 @@ class Projector:
                         depth_scale,
                         depth_max
                         ):
-        depth = np.zeros((height, width, 1), dtype=np.uint16)
+        depth = 2.0*np.ones((height, width, 1), dtype = float)
         color = np.zeros((height, width, 3), dtype=np.uint8)
 
-        for i in range(0, self.n):
-            point4d = np.append(self.points[i], 1)
-            new_point4d = np.matmul(extrinsic, point4d)
-            point3d = new_point4d[:-1]
-            zc = point3d[2]
-            new_point3d = np.matmul(intrinsic, point3d)
-            new_point3d = new_point3d/new_point3d[2]
-            u = int(round(new_point3d[0]))
-            v = int(round(new_point3d[1]))
+        for obj in range(0,3):
+            obj_idxs = np.where(self.label == obj)[0]
+            for i in obj_idxs:
+                print(i)
+                point4d = np.append(self.points[i], 1)
+                new_point4d = np.matmul(extrinsic, point4d)
+                point3d = new_point4d[:-1]
+                zc = point3d[2]
+                new_point3d = np.matmul(intrinsic, point3d)
+                new_point3d = new_point3d/new_point3d[2]
+                u = int(round(new_point3d[0]))
+                v = int(round(new_point3d[1]))
 
-            # Fixed u, v checks. u should be checked for width
-            if (u < 0 or u > width - 1 or v < 0 or v > height - 1 or zc <= 0 or zc > depth_max):
-                continue
+                # Fixed u, v checks. u should be checked for width
+                if (u < 0 or u > width - 1 or v < 0 or v > height - 1 or zc <= 0 or zc > depth_max):
+                    continue
+                # if(zc > depth[u][v]):
+                #     continue
 
-            d = zc * depth_scale
-            depth[v, u ] = d
-            color[v, u, :] = self.colors[i] * 255
+                depth[v, u ] = float(zc)
+                color[v, u, :] = self.colors[i] * 255
 
-        im_color = o3d.geometry.Image(color)
-        im_depth = o3d.geometry.Image(depth)
-        rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(
-            im_color, im_depth, depth_scale=1000.0, depth_trunc=depth_max, convert_rgb_to_intensity=False)
-        return rgbd
+        # for i in range(0, self.n):
+        #     point4d = np.append(self.points[i], 1)
+        #     new_point4d = np.matmul(extrinsic, point4d)
+        #     point3d = new_point4d[:-1]
+        #     zc = point3d[2]
+        #     new_point3d = np.matmul(intrinsic, point3d)
+        #     new_point3d = new_point3d/new_point3d[2]
+        #     u = int(round(new_point3d[0]))
+        #     v = int(round(new_point3d[1]))
+
+        #     # Fixed u, v checks. u should be checked for width
+        #     if (u < 0 or u > width - 1 or v < 0 or v > height - 1 or zc <= 0 or zc > depth_max):
+        #         continue
+        #     if(zc > depth[u][v]):
+        #         continue
+
+        #     depth[v, u ] = float(zc)
+        #     color[v, u, :] = self.colors[i] * 255
+        # im_color = o3d.geometry.Image(color)
+        # im_depth = o3d.geometry.Image(depth)
+        # rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(
+            # im_color, im_depth, depth_scale=1000.0, depth_trunc=depth_max, convert_rgb_to_intensity=False)
+        return color, depth
 
 
 def plot_func(src, dst, dir="", idx=0, save = False):
@@ -187,7 +210,11 @@ def colored_ICP(source, target):
 #     print(reg_p2p.transformation)
 #     draw_registration_result(source, target, reg_p2p.transformation)
 
-
+def get_transform( trans, quat):
+    t = np.eye(4)
+    t[:3, :3] = Rotation.from_quat( quat ).as_matrix()
+    t[:3, 3] = trans
+    return t
 
 def main():
     
@@ -219,11 +246,13 @@ def main():
             [0., 0., 1.0]
         ])
 
-    cam_extrinsic = np.array( [[ 0.05445081, -0.61150575,  0.7893642,  -0.336     ],
-            [-0.99848606, -0.03951354,  0.03826576,  0.06      ],
-            [ 0.00779084, -0.79025275, -0.61273151,  0.455     ],
-            [ 0.,          0.,          0.,          1.        ]])
-    cam_extrinsic = inv(cam_extrinsic)
+    cam_extrinsics = []
+    
+    cam_extrinsics.append( get_transform( [-0.336, 0.060, 0.455], [0.653, -0.616, 0.305, -0.317]) ) #rosrun tf tf_echo  map cam1
+    cam_extrinsics.append( get_transform( [0.090, 0.582, 0.449], [-0.037, 0.895, -0.443, 0.031]) )
+    cam_extrinsics.append( get_transform( [0.015, -0.524, 0.448], [0.887, 0.013, 0.001, -0.461]) )
+    
+    # cam_extrinsic = inv(cam_extrinsics[0])
 
 
     ply_point_cloud = o3d.data.PLYPointCloud()
@@ -231,21 +260,25 @@ def main():
     # object_pcd = object_pcd.uniform_down_sample( every_k_points=5 )
     # print(pcd)
     # print(np.asarray(pcd.points))
-    o3d.visualization.draw_geometries([object_pcd])
+    # o3d.visualization.draw_geometries([object_pcd])
     obj_name = "mug"
     idx = 0
     tmp_F_reg = np.eye(4)
     for topic, msg, t in bagIn.read_messages(topics=["/segmented_pointcloud"]):
         idx += 1
-        # if( idx <7):
-        #     continue
+        if( idx != 1):
+            continue
         pcd, label, segmented_pointclouds = convertCloudFromRosToOpen3d( msg )
-        p = Projector(pcd)
-        # rgbd = p.project_to_rgbd(1920,1080, cam_intrinsic, cam_extrinsic, 1000,10)
-        rgbd = p.project_to_rgbd(256, 256, cam_intrinsic, cam_extrinsic, 1000,10)
+        
+        # o3d.visualization.draw_geometries([pcd])
 
-        # print(rgbd)
-        o3d.io.write_image( 'img{}.png'.format(idx) ,rgbd.color )
+        p = Projector(pcd, label)
+        # rgbd = p.project_to_rgbd(1920,1080, cam_intrinsic, cam_extrinsic, 1000,10)
+        for cam_idx, cam_extrinsic in enumerate(cam_extrinsics,0):
+            rgb, depth = p.project_to_rgbd(256, 256, cam_intrinsic, inv(cam_extrinsic), 1000,10)
+            data = im.fromarray(rgb) 
+            data.save('cam{}_img{}.png'.format(cam_idx,idx)) 
+
         # for pcd in segmented_pointclouds:
             # print(pcd)
 
