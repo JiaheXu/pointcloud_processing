@@ -53,33 +53,9 @@ class Projector:
                         depth_scale,
                         depth_max
                         ):
-        depth = 10.0*np.ones((height, width, 1), dtype = float)
+        depth = 10.0*np.ones((height, width), dtype = float)
+        depth_uint = np.zeros((height, width), dtype=np.uint16)
         color = np.zeros((height, width, 3), dtype=np.uint8)
-
-        # object order works, but not general
-        # for obj in range(0,3):
-        #     obj_idxs = np.where(self.label == obj)[0]
-        #     for i in obj_idxs:
-        #         print(i)
-        #         point4d = np.append(self.points[i], 1)
-        #         new_point4d = np.matmul(extrinsic, point4d)
-        #         point3d = new_point4d[:-1]
-        #         zc = point3d[2]
-        #         new_point3d = np.matmul(intrinsic, point3d)
-        #         new_point3d = new_point3d/new_point3d[2]
-        #         u = int(round(new_point3d[0]))
-        #         v = int(round(new_point3d[1]))
-
-        #         # Fixed u, v checks. u should be checked for width
-        #         if (u < 0 or u > width - 1 or v < 0 or v > height - 1 or zc <= 0 or zc > depth_max):
-        #             continue
-        #         if(zc > depth[v][u]):
-        #             continue
-
-        #         depth[v, u ] = float(zc)
-        #         color[v, u, :] = self.colors[i] * 255
-
-
 
         for i in range(0, self.n):
             point4d = np.append(self.points[i], 1)
@@ -97,11 +73,16 @@ class Projector:
             if(zc > depth[v][u]):
                 continue
 
-            depth[v, u ] = float(zc)
+            depth[v][u] = zc
+            depth_uint[v, u] = zc * 1000
             color[v, u, :] = self.colors[i] * 255
 
-        return color, depth
-
+        im_color = o3d.geometry.Image(color)
+        im_depth = o3d.geometry.Image(depth_uint)
+        rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(
+            im_color, im_depth, depth_scale=1000, depth_trunc=2000, convert_rgb_to_intensity=False)
+        # return rgbd
+        return color,depth, depth_uint, rgbd
 
 def plot_func(src, dst, dir="", idx=0, save = False):
 
@@ -196,19 +177,6 @@ def colored_ICP(source, target):
     draw_registration_result_original_color(source, target,
                                             result_icp.transformation)
 
-# def ICP(source, target):
-
-#     threshold = 0.02
-#     trans_init = np.eye(4) 
-#     reg_p2p = o3d.pipelines.registration.registration_icp(
-#         source, target, threshold, trans_init,
-#         o3d.pipelines.registration.TransformationEstimationPointToPoint(),
-#         criteria=o3d.pipelines.registration.ICPConvergenceCriteria(relative_fitness=1e-06, relative_rmse=1e-06, max_iteration=2000)
-#         )
-#     print(reg_p2p)
-#     print("Transformation is:")
-#     print(reg_p2p.transformation)
-#     draw_registration_result(source, target, reg_p2p.transformation)
 
 def get_transform( trans, quat):
     t = np.eye(4)
@@ -224,6 +192,28 @@ def get_cube_corners( bound_box ):
     corners.append( [ bound_box[0][1], bound_box[1][0], bound_box[2][0] ])
 
     return corners
+
+def visualize_pcd(pcd):
+    coor_frame = o3d.geometry.TriangleMesh.create_coordinate_frame()
+    vis = o3d.visualization.VisualizerWithKeyCallback()
+    vis.create_window()
+    vis.add_geometry(coor_frame)
+    vis.get_render_option().background_color = np.asarray([255, 255, 255])
+
+    view_ctl = vis.get_view_control()
+
+    vis.add_geometry(pcd)
+
+    # view_ctl.set_up([-0.4, 0.0, 1.0])
+    # view_ctl.set_front([-4.02516493e-01, 3.62146675e-01, 8.40731978e-01])
+    # view_ctl.set_lookat([0.0 ,0.0 ,0.0])
+    view_ctl.set_up((1, 0, 0))  # set the positive direction of the x-axis as the up direction
+    # view_ctl.set_up((0, -1, 0))  # set the negative direction of the y-axis as the up direction
+    view_ctl.set_front((-2.5, 0.0, 0.7))  # set the positive direction of the x-axis toward you
+    view_ctl.set_lookat((0.0, 0.0, 0.3))  # set the original point as the center point of the window
+    vis.run()
+    vis.destroy_window()
+
 
 def main():
     
@@ -250,11 +240,13 @@ def main():
     #     ])
 
     cam_intrinsic = np.array([
-            [80, 0., 128],
-            [0. ,80,  128],
+            [80.0, 0., 128.0],
+            [0. ,80.0,  128.0],
             [0., 0., 1.0]
         ])
-
+    
+    o3d_intrinsic = o3d.camera.PinholeCameraIntrinsic(256, 256, 80.0, 80.0, 128.0, 128.0)
+    # print("???")
     cam_extrinsics = []
     
     cam_extrinsics.append( get_transform( [-0.336, 0.060, 0.455], [0.653, -0.616, 0.305, -0.317]) ) #rosrun tf tf_echo  map cam1
@@ -271,17 +263,18 @@ def main():
     vol.axis_max = 1.0
     vol.axis_min = -1.0
     ply_point_cloud = o3d.data.PLYPointCloud()
-    object_pcd = o3d.io.read_point_cloud("./mug1.ply")
+    # object_pcd = o3d.io.read_point_cloud("./mug1.ply")
 
     # object_pcd = object_pcd.uniform_down_sample( every_k_points=5 )
+
     # print(pcd)
     # print(np.asarray(pcd.points))
     # o3d.visualization.draw_geometries([object_pcd])
+    
+    # visualize_pcd(object_pcd)
+
+
     corners = get_cube_corners(bound_box)
-    # for i in range(0,2):
-    #     for j in range(0,2):
-    #         for k in range(0,2):       
-    #             corners.append( [ bound_box[0][i], bound_box[1][j], bound_box[2][k] ] )
     corners = np.array(corners)
     bounding_polygon = corners.astype("float64")
 
@@ -294,20 +287,36 @@ def main():
         if( idx != 1):
             continue
         pcd, label, segmented_pointclouds = convertCloudFromRosToOpen3d( msg )
-        o3d.visualization.draw_geometries([pcd])
+        # o3d.visualization.draw_geometries([pcd])
   
         
 
         vol.bounding_polygon = o3d.utility.Vector3dVector(bounding_polygon)
         cropped_pcd = vol.crop_point_cloud(pcd)
-        o3d.visualization.draw_geometries([cropped_pcd])
+        # o3d.visualization.draw_geometries([cropped_pcd])
+        visualize_pcd( pcd )
 
-        # p = Projector(pcd, label)
+        p = Projector(pcd, label)
 
-        # for cam_idx, cam_extrinsic in enumerate(cam_extrinsics,0):
-        #     rgb, depth = p.project_to_rgbd(256, 256, cam_intrinsic, inv(cam_extrinsic), 1000,10)
-        #     data = im.fromarray(rgb) 
-        #     data.save('cam{}_img{}.png'.format(cam_idx,idx)) 
+        for cam_idx, cam_extrinsic in enumerate(cam_extrinsics,0):
+            rgb, depth, depth_uint8,rgbd = p.project_to_rgbd(256, 256, cam_intrinsic, inv(cam_extrinsic), 1000,10)
+            
+            data = im.fromarray(rgb) 
+            data.save('cam{}_img{}.png'.format(cam_idx,idx))
+
+            depth_img = im.fromarray(depth_uint8)
+            depth_img.save('depth_cam{}_img{}.png'.format(cam_idx,idx))
+            # pcd1 = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd, intrinsic=cam_intrinsic, extrinsic=cam_extrinsics, project_valid_depth_only=True)
+            # o3d.visualization.draw_geometries([pcd1])
+
+            final_pcd = o3d.geometry.PointCloud.create_from_rgbd_image(
+                rgbd,
+                o3d_intrinsic
+            )
+            # final_pcd.transform([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
+            final_pcd.transform( cam_extrinsic )
+            # o3d.visualization.draw_geometries([final_pcd])
+            visualize_pcd(final_pcd)
 
         # for pcd in segmented_pointclouds:
             # print(pcd)
