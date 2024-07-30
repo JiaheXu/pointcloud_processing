@@ -109,4 +109,4 @@ def convertCloudFromRosToOpen3d(ros_cloud):
 
 
     # return
-    return open3d_cloud, label, segmented_pointclouds
+    return  xyz, rgb, label, open3d_cloud, segmented_pointclouds

@@ -29,6 +29,7 @@ from numpy.linalg import inv
 from lib_cloud_conversion_between_Open3D_and_ROS import convertCloudFromRosToOpen3d
 from scipy.spatial.transform import Rotation
 import copy
+import fpsample
 
 # ICP
 from KD_tree import *
@@ -205,12 +206,27 @@ def visualize_pcd(pcd, transforms, moving_obj):
        
     o3d.visualization.draw_geometries(object_pcds)
 
+def cropping(xyz, rgb, label, bound_box):
+
+    x = xyz[:,0]
+    y = xyz[:,1]
+    z = xyz[:,2]
+    valid_idx = np.where( (x>=bound_box[0][0]) & (x <=bound_box[0][1]) & (y>=bound_box[1][0]) & (y<=bound_box[1][1]) & (z>=bound_box[2][0]) & (z<=bound_box[2][1]) )
+    valid_xyz = xyz[valid_idx]
+    valid_rgb = rgb[valid_idx]
+    valid_label = label[valid_idx]
+            
+    valid_pcd = o3d.geometry.PointCloud()
+    valid_pcd.points = o3d.utility.Vector3dVector( valid_xyz)
+    valid_pcd.colors = o3d.utility.Vector3dVector( valid_rgb/255.0 )
+
+    return valid_xyz, valid_rgb, valid_label, valid_pcd
 
 def main():
     
     parser = argparse.ArgumentParser(description="extract interested object and traj from rosbag")
     # parser.add_argument("-b", "--bag_in", default="./data/yellow_handle_mug.bag",  help="Input ROS bag name.")
-    parser.add_argument("-b", "--bag_in", default="./segmented_mug_traj1.bag",  help="Input ROS bag name.")
+    parser.add_argument("-b", "--bag_in", default="./boot/segmented_boot2.bag",  help="Input ROS bag name.")
     parser.add_argument("-o", "--goal_object", default="mug", help="name of intereseted object")
     # parser.add_argument("-b", "--bag_in", default="traj1.bag",  help="Input ROS bag name.")
     
@@ -232,11 +248,11 @@ def main():
     cam_extrinsics.append( get_transform( [0.090, 0.582, 0.449], [-0.037, 0.895, -0.443, 0.031]) )
     cam_extrinsics.append( get_transform( [0.015, -0.524, 0.448], [0.887, 0.013, 0.001, -0.461]) )
     
-    bound_box = np.array( [ [-0.2, 0.25], [ -0.6 , 0.6], [ -0.1 , 0.4] ] )
+    bound_box = np.array( [ [-0.2, 0.25], [ -0.6 , 0.6], [ -0.0 , 0.4] ] )
     vol = o3d.visualization.SelectionPolygonVolume()
     vol.orthogonal_axis = "Z"
     vol.axis_max = 1.0
-    vol.axis_min = -1.0
+    vol.axis_min = -0.0
 
     corners = get_cube_corners(bound_box)
     corners = np.array(corners)
@@ -259,12 +275,35 @@ def main():
         idx += 1
         if( idx != 1):
             continue
-        pcd, label, segmented_pointclouds = convertCloudFromRosToOpen3d( msg )
-        vol.bounding_polygon = o3d.utility.Vector3dVector(bounding_polygon)
-        cropped_pcd = vol.crop_point_cloud(pcd)
-    
-        visualize_pcd( cropped_pcd, transforms , segmented_pointclouds[1])
+        xyz, rgb, label, pcd, segmented_pointclouds = convertCloudFromRosToOpen3d( msg )
+        # print("xyz: ", xyz.shape)
+        # print("rgb: ",rgb.shape)
+        # print("label: ", label.shape)
 
+        valid_xyz, valid_rgb, valid_label, cropped_pcd = cropping( xyz, rgb, label, bound_box )
+        # o3d.visualization.draw_geometries([cropped_pcd])
+
+        cl, ind = cropped_pcd.remove_statistical_outlier(nb_neighbors=20,std_ratio=8.0)
+        inlier_cloud = cropped_pcd.select_by_index(ind)
+        # o3d.visualization.draw_geometries([inlier_cloud])
+
+        # uniform_down_pcd = inlier_cloud.uniform_down_sample(every_k_points=10)
+        # o3d.visualization.draw_geometries([uniform_down_pcd])
+    
+        
+        # downpcd_farthest = uniform_down_pcd.farthest_point_down_sample(5000)
+        npy_inlier_cloud = np.asarray( inlier_cloud.points )
+        npy_rgb = np.asarray( inlier_cloud.colors )
+        fps_samples_idx = fpsample.fps_sampling(npy_inlier_cloud, 5000)
+        xyz = npy_inlier_cloud[fps_samples_idx]
+        rgb = npy_rgb[fps_samples_idx]
+        print("xyz: ", xyz.shape)
+        valid_pcd = o3d.geometry.PointCloud()
+        valid_pcd.points = o3d.utility.Vector3dVector( xyz)
+        valid_pcd.colors = o3d.utility.Vector3dVector( rgb )
+        o3d.visualization.draw_geometries( [valid_pcd] )
+        # o3d.visualization.draw_geometries([downpcd_farthest])
+        # o3d.visualization.draw_geometries([inlier_cloud])
   
 
 
