@@ -182,7 +182,7 @@ def visualize_pcd(pcd):
     vis.run()
     vis.destroy_window()
 
-def visualize_pcd_transform(pcd, transforms, moving_obj):
+def visualize_pcd_transform(pcd, transforms):
 
     coor_frame = o3d.geometry.TriangleMesh.create_coordinate_frame()
     vis = o3d.visualization.VisualizerWithKeyCallback()
@@ -221,6 +221,10 @@ def visualize_pcd_delta_transform(pcd, start_t, delta_transforms):
 
     mesh = o3d.geometry.TriangleMesh.create_coordinate_frame()
     last_trans = get_transform( start_t[0:3], start_t[3:7] )
+    new_mesh = copy.deepcopy(mesh).transform(last_trans)
+    new_mesh.scale(0.1, center=(last_trans[0][3], last_trans[1][3], last_trans[2][3]) )
+    vis.add_geometry(new_mesh)
+
     for trans in delta_transforms:
         last_trans = get_transform( trans[0:3], trans[3:7] ) @ last_trans
         new_mesh = copy.deepcopy(mesh).transform(last_trans)
@@ -273,6 +277,24 @@ def get_start_pose(object_pcd):
     z = np.min(xyz[:,2])
     return np.array( [ pose[0], pose[1], z, 0., 0., 0., 1.] )
 
+def get_traj(dist, actions, transforms, traj_length):
+    
+    total_length = np.sum(dist)
+    step_length = total_length / (traj_length - 1)
+    current_step = 1.0
+    traj = [transforms[0]]
+    current_dist = 0.0
+    for idx, action in enumerate( actions, 0):
+        
+        if(current_dist + dist[idx] > (current_step * step_length) - 1e-4 ):
+            if(abs(current_dist - current_step * step_length) < abs(current_dist + dist[idx] - current_step * step_length) ):
+                traj.append( transforms[idx] )
+            else:
+                traj.append( transforms[idx+1] )
+            current_step = current_step + 1.0
+        current_dist += dist[idx]
+
+    return traj
 def main():
     
     parser = argparse.ArgumentParser(description="extract interested object and traj from rosbag")
@@ -322,6 +344,9 @@ def main():
         dist.append(np.linalg.norm(delta_t[0:3]))
         actions.append( copy.deepcopy(delta_t) )
 
+    traj_length = 8
+
+    fixed_length_traj= get_traj(dist, actions, transforms, traj_length)
     
     ros_msg = None
     idx = 0
@@ -337,18 +362,29 @@ def main():
     cropped_pcd = cropped_pcd.select_by_index(ind)
     valid_label = valid_label[ind]
 
+    # env_pcd = segmented_pointclouds[0]
     object_pcd = segmented_pointclouds[1]
+    # print("env_pcd: ", env_pcd)
+    print("object_pcd: ", object_pcd)
+    
     cl, ind = object_pcd.remove_statistical_outlier(nb_neighbors=10,std_ratio=8.0)
     object_pcd = object_pcd.select_by_index(ind)
     object_pcd = object_pcd.farthest_point_down_sample(5000)
     start_pose_6d = get_start_pose(object_pcd)
 
+    fixed_length_action = []
+    for idx in range(len(fixed_length_traj) -1):
+        delta_t = get_delta_transform( fixed_length_traj[idx+1], fixed_length_traj[idx] )
+        dist.append(np.linalg.norm(delta_t[0:3]))
+        fixed_length_action.append( copy.deepcopy(delta_t) )
+    # visualize_pcd_delta_transform(cropped_pcd, start_pose_6d, fixed_length_action)
+
     # downpcd_farthest = uniform_down_pcd.farthest_point_down_sample(5000)
-    
+
     # whole env
     npy_cropped_pcd = np.asarray( cropped_pcd.points )
     npy_rgb = np.asarray( cropped_pcd.colors )
-    fps_samples_idx = fpsample.fps_sampling(npy_cropped_pcd, 5000)
+    fps_samples_idx = fpsample.fps_sampling(npy_cropped_pcd, 2000)
 
     xyz = npy_cropped_pcd[fps_samples_idx]
     rgb = npy_rgb[fps_samples_idx]
@@ -358,36 +394,30 @@ def main():
     valid_pcd = o3d.geometry.PointCloud()
     valid_pcd.points = o3d.utility.Vector3dVector( xyz)
     valid_pcd.colors = o3d.utility.Vector3dVector( rgb )
-    o3d.visualization.draw_geometries( [valid_pcd] )
+    # o3d.visualization.draw_geometries( [valid_pcd] )
     
-    object_idx = np.where(final_label==1)[0]
+    object_idx = np.where(final_label==0)[0]
     print("len: ", len(object_idx))
     object_pcd = o3d.geometry.PointCloud()
     object_pcd.points = o3d.utility.Vector3dVector( xyz[object_idx] )
     object_pcd.colors = o3d.utility.Vector3dVector( rgb[object_idx] )
     o3d.visualization.draw_geometries( [object_pcd] )
-    
 
+    ###################################################################################### for image inputs
 
-
-    p = Projector(cropped_pcd, label)
-    for cam_idx, cam_extrinsic in enumerate(cam_extrinsics, 0):
-        rgb, depth, xyz, label, rgbd = p.project_to_rgbd(256, 256, cam_intrinsic, inv(cam_extrinsic), 1000,10)
+    # p = Projector(cropped_pcd, label)
+    # for cam_idx, cam_extrinsic in enumerate(cam_extrinsics, 0):
+    #     rgb, depth, xyz, label, rgbd = p.project_to_rgbd(256, 256, cam_intrinsic, inv(cam_extrinsic), 1000,10)
         
-        data = im.fromarray(rgb) 
-        data.save('cam{}_img{}.png'.format(cam_idx,idx))
-        final_pcd = o3d.geometry.PointCloud.create_from_rgbd_image(
-            rgbd,
-            o3d_intrinsic
-        )
-        final_pcd.transform( cam_extrinsic )
-        # visualize_pcd(final_pcd)
-
-
-
-    print(count)
-
-    bagIn.close()
+    #     data = im.fromarray(rgb) 
+    #     data.save('cam{}_img{}.png'.format(cam_idx,idx))
+    #     final_pcd = o3d.geometry.PointCloud.create_from_rgbd_image(
+    #         rgbd,
+    #         o3d_intrinsic
+    #     )
+    #     final_pcd.transform( cam_extrinsic )
+    #     # visualize_pcd(final_pcd)
+    # bagIn.close()
 
 if __name__ == "__main__":
     main()
