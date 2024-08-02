@@ -244,8 +244,8 @@ def main():
             [0. ,80.0,  128.0],
             [0., 0., 1.0]
         ])
-    
-    o3d_intrinsic = o3d.camera.PinholeCameraIntrinsic(256, 256, 80.0, 80.0, 128.0, 128.0)
+    fxfy = 256.0
+    o3d_intrinsic = o3d.camera.PinholeCameraIntrinsic(256, 256, fxfy, fxfy, 128.0, 128.0)
     # print("???")
     cam_extrinsics = []
     
@@ -286,7 +286,8 @@ def main():
         idx += 1
         if( idx != 1):
             continue
-        pcd, label, segmented_pointclouds = convertCloudFromRosToOpen3d( msg )
+        # pcd, label, segmented_pointclouds = convertCloudFromRosToOpen3d( msg )
+        xyz, rgb, label, pcd, segmented_pointclouds = convertCloudFromRosToOpen3d( msg )
         # o3d.visualization.draw_geometries([pcd])
   
         

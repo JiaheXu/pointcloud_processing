@@ -43,9 +43,9 @@ class Projector:
         self.cloud = cloud
         self.points = np.asarray(cloud.points)
         self.colors = np.asarray(cloud.colors)
-        self.n = len(self.points)
         self.label = label
-
+        self.n = len(self.points)
+    
     # intri 3x3, extr 4x4
     def project_to_rgbd(self,
                         width,
@@ -58,6 +58,9 @@ class Projector:
         depth = 10.0*np.ones((height, width), dtype = float)
         depth_uint = np.zeros((height, width), dtype=np.uint16)
         color = np.zeros((height, width, 3), dtype=np.uint8)
+        # xyz =  np.full((height, width, 3), np.nan)
+        xyz =  np.zeros((height, width, 3), dtype = float)
+        label = np.zeros((height, width), dtype=np.uint8)
 
         for i in range(0, self.n):
             point4d = np.append(self.points[i], 1)
@@ -77,50 +80,17 @@ class Projector:
 
             depth[v][u] = zc
             depth_uint[v, u] = zc * 1000
+            xyz[v,u,:] = self.points[i]
             color[v, u, :] = self.colors[i] * 255
+            if(label is not None):
+                label[v][u] = self.label[i]
 
         im_color = o3d.geometry.Image(color)
         im_depth = o3d.geometry.Image(depth_uint)
         rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(
             im_color, im_depth, depth_scale=1000, depth_trunc=2000, convert_rgb_to_intensity=False)
         # return rgbd
-        return color,depth, depth_uint, rgbd
-
-def plot_func(src, dst, dir="", idx=0, save = False):
-
-    if(src.shape[0] != 3):
-        src = np.transpose(src)
-    if(dst.shape[0] != 3):
-        dst = np.transpose(dst)    
-    fig = plt.figure()
-    ax = fig.add_subplot(111,projection="3d")
-
-    ax.scatter(src[0, :], src[1, :], src[2, :], c = colors[0])
-    ax.scatter(dst[0, :], dst[1, :], dst[2, :], c = colors[1])
-    if(save == False):
-        plt.show()
-    else:
-        plt.savefig(dir + "/" + str(idx) + ".svg")
-
-def get_init_trans(src, dst):
-    if(src.shape[0] == 3):
-        src = np.transpose(src)
-    if(dst.shape[0] == 3):
-        dst = np.transpose(dst)
-    trans = np.mean(src, axis = 0) - np.mean(dst, axis = 0)
-    trans = trans.reshape(3,1)
-    return trans
-
-
-def print_plot(F_reg, src, dst, dir, idx = 0,  save = False):
-    rot = F_reg[0:3, 0:3]
-    trans = F_reg[0:3, 3]
-    
-    trans = trans.reshape(3,1)
-    print("rot: ", rot)
-    print("trans: ", trans)
-    pcd = rot @ np.transpose(dst) + trans
-    plot_func( src, pcd , dir, idx = idx, save = save)
+        return color, depth, xyz, label, rgbd
     
 def display_inlier_outlier(cloud, ind):
     inlier_cloud = cloud.select_by_index(ind)
@@ -195,16 +165,73 @@ def get_cube_corners( bound_box ):
 
     return corners
 
-def visualize_pcd(pcd, transforms, moving_obj):
+def visualize_pcd(pcd):
+    coor_frame = o3d.geometry.TriangleMesh.create_coordinate_frame()
+    vis = o3d.visualization.VisualizerWithKeyCallback()
+    vis.create_window()
+    vis.add_geometry(coor_frame)
+    vis.get_render_option().background_color = np.asarray([255, 255, 255])
 
-    object_pcds = [pcd]
-    last_transform = np.eye(4)
-    for transform in transforms:
-        new_obj_pcd = moving_obj.transform(transform@inv(last_transform))
-        last_transform = transform
-        object_pcds.append(copy.deepcopy(new_obj_pcd))
-       
-    o3d.visualization.draw_geometries(object_pcds)
+    view_ctl = vis.get_view_control()
+
+    vis.add_geometry(pcd)
+    view_ctl.set_up((1, 0, 0))  # set the positive direction of the x-axis as the up direction
+    # view_ctl.set_up((0, -1, 0))  # set the negative direction of the y-axis as the up direction
+    view_ctl.set_front((-2.5, 0.0, 0.7))  # set the positive direction of the x-axis toward you
+    view_ctl.set_lookat((0.0, 0.0, 0.3))  # set the original point as the center point of the window
+    vis.run()
+    vis.destroy_window()
+
+def visualize_pcd_transform(pcd, transforms, moving_obj):
+
+    coor_frame = o3d.geometry.TriangleMesh.create_coordinate_frame()
+    vis = o3d.visualization.VisualizerWithKeyCallback()
+    vis.create_window()
+    coor_frame.scale(0.2, center=(0.,0.,0.))
+    vis.add_geometry(coor_frame)
+    vis.get_render_option().background_color = np.asarray([255, 255, 255])
+
+    view_ctl = vis.get_view_control()
+
+    vis.add_geometry(pcd)
+
+    mesh = o3d.geometry.TriangleMesh.create_coordinate_frame()
+
+    for trans in transforms:
+        new_mesh = copy.deepcopy(mesh).transform(trans)
+        new_mesh.scale(0.1, center=(trans[0][3], trans[1][3], trans[2][3]) )
+        vis.add_geometry(new_mesh)
+
+    view_ctl.set_up((1, 0, 0))  # set the positive direction of the x-axis as the up direction
+    view_ctl.set_front((-0.3, 0.0, 0.2))  # set the positive direction of the x-axis toward you
+    view_ctl.set_lookat((0.0, 0.0, 0.3))  # set the original point as the center point of the window
+    vis.run()
+    vis.destroy_window()
+
+def visualize_pcd_delta_transform(pcd, start_t, delta_transforms):
+
+    coor_frame = o3d.geometry.TriangleMesh.create_coordinate_frame()
+    vis = o3d.visualization.VisualizerWithKeyCallback()
+    vis.create_window()
+    coor_frame.scale(0.2, center=(0.,0.,0.))
+    vis.add_geometry(coor_frame)
+    vis.get_render_option().background_color = np.asarray([255, 255, 255])
+    view_ctl = vis.get_view_control()
+    vis.add_geometry(pcd)
+
+    mesh = o3d.geometry.TriangleMesh.create_coordinate_frame()
+    last_trans = get_transform( start_t[0:3], start_t[3:7] )
+    for trans in delta_transforms:
+        last_trans = get_transform( trans[0:3], trans[3:7] ) @ last_trans
+        new_mesh = copy.deepcopy(mesh).transform(last_trans)
+        new_mesh.scale(0.1, center=(last_trans[0][3], last_trans[1][3], last_trans[2][3]) )
+        vis.add_geometry(new_mesh)
+
+    view_ctl.set_up((1, 0, 0))  # set the positive direction of the x-axis as the up direction
+    view_ctl.set_front((-0.3, 0.0, 0.2))  # set the positive direction of the x-axis toward you
+    view_ctl.set_lookat((0.0, 0.0, 0.3))  # set the original point as the center point of the window
+    vis.run()
+    vis.destroy_window()
 
 def cropping(xyz, rgb, label, bound_box):
 
@@ -222,91 +249,139 @@ def cropping(xyz, rgb, label, bound_box):
 
     return valid_xyz, valid_rgb, valid_label, valid_pcd
 
+def get_delta_transform(A, B): #A = d_T @ B
+
+    d_T = A @ inv( B )
+    d_rot = Rotation.from_matrix( d_T[0:3,0:3])
+    d_quat = d_rot.as_quat()
+    t = np.array( [ d_T[0][3], d_T[1][3], d_T[2][3], d_quat[0], d_quat[1], d_quat[2], d_quat[3] ] )
+    return t
+
+
+def get_start_pose(object_pcd):
+
+    xyz = np.array( object_pcd.points )
+    x = np.mean(xyz[:,0])
+    y = np.mean(xyz[:,1])
+    z = np.mean(xyz[:,2])
+    # print("xyz: ", xyz.shape)
+    # print("x: ", np.min(xyz[:,0]), np.max(xyz[:,0]))
+    # print("y: ", np.min(xyz[:,1]), np.max(xyz[:,1]))
+    # print("z: ", np.min(xyz[:,2]), np.max(xyz[:,2]))
+    pose = [x,y,z]
+    # print("pose: ", pose)
+    z = np.min(xyz[:,2])
+    return np.array( [ pose[0], pose[1], z, 0., 0., 0., 1.] )
+
 def main():
     
     parser = argparse.ArgumentParser(description="extract interested object and traj from rosbag")
     # parser.add_argument("-b", "--bag_in", default="./data/yellow_handle_mug.bag",  help="Input ROS bag name.")
     parser.add_argument("-b", "--bag_in", default="./boot/segmented_boot2.bag",  help="Input ROS bag name.")
+    parser.add_argument("-t", "--traj_in", default="./fast.npy",  help="Input trajectory file name.")
     parser.add_argument("-o", "--goal_object", default="mug", help="name of intereseted object")
-    # parser.add_argument("-b", "--bag_in", default="traj1.bag",  help="Input ROS bag name.")
     
     args = parser.parse_args()
     bagIn = rosbag.Bag(args.bag_in, "r")
     count = 0
 
+    fxfy = 200.
     cam_intrinsic = np.array([
-            [80.0, 0., 128.0],
-            [0. ,80.0,  128.0],
+            [fxfy, 0., 128.0],
+            [0. ,fxfy,  128.0],
             [0., 0., 1.0]
         ])
     
-    o3d_intrinsic = o3d.camera.PinholeCameraIntrinsic(256, 256, 80.0, 80.0, 128.0, 128.0)
-    # print("???")
-    cam_extrinsics = []
-    
-    cam_extrinsics.append( get_transform( [-0.336, 0.060, 0.455], [0.653, -0.616, 0.305, -0.317]) ) #rosrun tf tf_echo  map cam1
-    cam_extrinsics.append( get_transform( [0.090, 0.582, 0.449], [-0.037, 0.895, -0.443, 0.031]) )
-    cam_extrinsics.append( get_transform( [0.015, -0.524, 0.448], [0.887, 0.013, 0.001, -0.461]) )
+    o3d_intrinsic = o3d.camera.PinholeCameraIntrinsic(256, 256, fxfy, fxfy, 128.0, 128.0)
+
+    cam_extrinsics = []    
+    # cam_extrinsics.append( get_transform( [-0.336, 0.060, 0.455], [0.653, -0.616, 0.305, -0.317]) ) # rosrun tf tf_echo  map cam1 # need to change quat
+    # cam_extrinsics.append( get_transform( [0.090, 0.582, 0.449], [-0.037, 0.895, -0.443, 0.031]) ) # real world cam param
+    # cam_extrinsics.append( get_transform( [0.015, -0.524, 0.448], [0.887, 0.013, 0.001, -0.461]) ) # real world cam param
+
+    cam_extrinsics.append( get_transform( [-0.536, 0.060, 0.455], [0.653, -0.616, 0.305, -0.317]) ) #rosrun tf tf_echo  map cam1 # need to change quat
+    cam_extrinsics.append( get_transform( [-0.120, 0.582, 0.449], [-0.037, 0.895, -0.443, 0.031]) )
+    cam_extrinsics.append( get_transform( [0.015, -0.624, 0.448], [0.887, 0.013, 0.001, -0.461]) )
     
     bound_box = np.array( [ [-0.2, 0.25], [ -0.6 , 0.6], [ -0.0 , 0.4] ] )
-    vol = o3d.visualization.SelectionPolygonVolume()
-    vol.orthogonal_axis = "Z"
-    vol.axis_max = 1.0
-    vol.axis_min = -0.0
-
-    corners = get_cube_corners(bound_box)
-    corners = np.array(corners)
-    bounding_polygon = corners.astype("float64")
 
     obj_name = "mug"
-    idx = 0
+    
     tmp_F_reg = np.eye(4)
     
-    # transforms = np.load("./tag_pose.npy", allow_pickle=True)
-    
+    transform_data = np.load(args.traj_in, allow_pickle=True)
+    # print("transform_data: ", len(transform_data))
     transforms = []
-    transforms.append( get_transform( [0., 0.1, 0.1],[ 0., 0., 0., 1.]) )
-    transforms.append( get_transform( [0., 0.2, 0.1],[ 0., 0., 0., 1.]) )
-    transforms.append( get_transform( [0., 0.3, 0.0],[0., 0., 0., 1.]) )
+    for transform in transform_data:
+        transforms.append( cam_extrinsics[0] @ get_transform( transform[0:3], transform[3:7] ) )
 
-    print(transforms)
-    print("length: ", len(transforms) )
+    actions = []
+    dist = []
+    for idx in range(len(transforms) -1):
+        delta_t = get_delta_transform( transforms[idx+1], transforms[idx] )
+        dist.append(np.linalg.norm(delta_t[0:3]))
+        actions.append( copy.deepcopy(delta_t) )
+
+    
+    ros_msg = None
+    idx = 0
     for topic, msg, t in bagIn.read_messages(topics=["/segmented_pointcloud"]):
         idx += 1
-        if( idx != 1):
+        if( idx != 1 ):
             continue
-        xyz, rgb, label, pcd, segmented_pointclouds = convertCloudFromRosToOpen3d( msg )
-        # print("xyz: ", xyz.shape)
-        # print("rgb: ",rgb.shape)
-        # print("label: ", label.shape)
-
-        valid_xyz, valid_rgb, valid_label, cropped_pcd = cropping( xyz, rgb, label, bound_box )
-        # o3d.visualization.draw_geometries([cropped_pcd])
-
-        cl, ind = cropped_pcd.remove_statistical_outlier(nb_neighbors=20,std_ratio=8.0)
-        inlier_cloud = cropped_pcd.select_by_index(ind)
-        # o3d.visualization.draw_geometries([inlier_cloud])
-
-        # uniform_down_pcd = inlier_cloud.uniform_down_sample(every_k_points=10)
-        # o3d.visualization.draw_geometries([uniform_down_pcd])
+        ros_msg = msg # for now, just need the first one
     
+    xyz, rgb, label, pcd, segmented_pointclouds = convertCloudFromRosToOpen3d( ros_msg )
+    valid_xyz, valid_rgb, valid_label, cropped_pcd = cropping( xyz, rgb, label, bound_box )
+    cl, ind = cropped_pcd.remove_statistical_outlier(nb_neighbors=20,std_ratio=8.0)
+    cropped_pcd = cropped_pcd.select_by_index(ind)
+    valid_label = valid_label[ind]
+
+    object_pcd = segmented_pointclouds[1]
+    cl, ind = object_pcd.remove_statistical_outlier(nb_neighbors=10,std_ratio=8.0)
+    object_pcd = object_pcd.select_by_index(ind)
+    object_pcd = object_pcd.farthest_point_down_sample(5000)
+    start_pose_6d = get_start_pose(object_pcd)
+
+    # downpcd_farthest = uniform_down_pcd.farthest_point_down_sample(5000)
+    
+    # whole env
+    npy_cropped_pcd = np.asarray( cropped_pcd.points )
+    npy_rgb = np.asarray( cropped_pcd.colors )
+    fps_samples_idx = fpsample.fps_sampling(npy_cropped_pcd, 5000)
+
+    xyz = npy_cropped_pcd[fps_samples_idx]
+    rgb = npy_rgb[fps_samples_idx]
+    final_label = valid_label[fps_samples_idx]
+
+    print("xyz: ", xyz.shape)
+    valid_pcd = o3d.geometry.PointCloud()
+    valid_pcd.points = o3d.utility.Vector3dVector( xyz)
+    valid_pcd.colors = o3d.utility.Vector3dVector( rgb )
+    o3d.visualization.draw_geometries( [valid_pcd] )
+    
+    object_idx = np.where(final_label==1)[0]
+    print("len: ", len(object_idx))
+    object_pcd = o3d.geometry.PointCloud()
+    object_pcd.points = o3d.utility.Vector3dVector( xyz[object_idx] )
+    object_pcd.colors = o3d.utility.Vector3dVector( rgb[object_idx] )
+    o3d.visualization.draw_geometries( [object_pcd] )
+    
+
+
+
+    p = Projector(cropped_pcd, label)
+    for cam_idx, cam_extrinsic in enumerate(cam_extrinsics, 0):
+        rgb, depth, xyz, label, rgbd = p.project_to_rgbd(256, 256, cam_intrinsic, inv(cam_extrinsic), 1000,10)
         
-        # downpcd_farthest = uniform_down_pcd.farthest_point_down_sample(5000)
-        npy_inlier_cloud = np.asarray( inlier_cloud.points )
-        npy_rgb = np.asarray( inlier_cloud.colors )
-        fps_samples_idx = fpsample.fps_sampling(npy_inlier_cloud, 5000)
-        xyz = npy_inlier_cloud[fps_samples_idx]
-        rgb = npy_rgb[fps_samples_idx]
-        print("xyz: ", xyz.shape)
-        valid_pcd = o3d.geometry.PointCloud()
-        valid_pcd.points = o3d.utility.Vector3dVector( xyz)
-        valid_pcd.colors = o3d.utility.Vector3dVector( rgb )
-        o3d.visualization.draw_geometries( [valid_pcd] )
-        # o3d.visualization.draw_geometries([downpcd_farthest])
-        # o3d.visualization.draw_geometries([inlier_cloud])
-  
-
-
+        data = im.fromarray(rgb) 
+        data.save('cam{}_img{}.png'.format(cam_idx,idx))
+        final_pcd = o3d.geometry.PointCloud.create_from_rgbd_image(
+            rgbd,
+            o3d_intrinsic
+        )
+        final_pcd.transform( cam_extrinsic )
+        # visualize_pcd(final_pcd)
 
 
 
