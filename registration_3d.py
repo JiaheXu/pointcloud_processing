@@ -5,44 +5,40 @@ from cartesian import *
 # start and goal are a nx3 numpy array 
 # return a 4*4 transform matrix F that F*start[i] = goal[i] in a lsq way 
 ######
-def registration_3d( start , goal ):
-    n = np.shape(start)[0]
-    #middle point
-    start_mid = np.sum(start, axis=0)/n
-    start = start - start_mid
+def registration_3d(inpts, outpts):
+    # R @ inpts + t = outpts
+    # to_E_from
+    # cam_R_base @ base_p + cam_T_base = CAM_p
+    # inpts: base_p (points in base frame)
+    # outpts: CAM_p (tag position in camera frame) 
+    """
+    Takes in two sets of corresponding points, returns the rigid transformation matrix from the first to the second.
+    """
+    assert inpts.shape == outpts.shape
+    inpts, outpts = np.copy(inpts), np.copy(outpts)
     
-    goal_mid = np.sum(goal, axis=0)/n
-    goal = goal - goal_mid
+    inpt_mean = inpts.mean(axis=0)
+    outpt_mean = outpts.mean(axis=0)
     
-    # according to formula on rigid3d3dcalculations.pdf p9
-    H = start.T @ goal
-    u,s,vt = np.linalg.svd(H)
-    v = vt.T
-    R = v@(u.T)
-    if np.abs( np.linalg.det(R) - 1 ) > 1e-5: #det(R) != 1
-        #A@t = b
-        #use lsq find t, lsq method have relatively greater error, so we take it as a plan B
-        A = np.zeros((3*n, 9))
-        B = np.zeros((3*n, 1))
-        for i in range(n):
-            A[i*3,0] = start[i,0]
-            A[i*3,1] = start[i,1]
-            A[i*3,2] = start[i,2]
-            A[i*3+1,3] = start[i,0]
-            A[i*3+1,4] = start[i,1]
-            A[i*3+1,5] = start[i,2]
-            A[i*3+2,6] = start[i,0]
-            A[i*3+2,7] = start[i,1]
-            A[i*3+2,8] = start[i,2]
-            
-            B[i*3] = goal[i,0]
-            B[i*3+1] = goal[i,1]
-            B[i*3+2] = goal[i,2]
-            
-        X = np.linalg.lstsq(A, B, rcond=None)[0]
-        R = X.reshape(3,3)
-        
-    p = goal_mid - R@start_mid
+    outpts -= outpt_mean
+    inpts -= inpt_mean
 
-    F = concat_frame(R,p)
-    return F
+    X = inpts.T
+    Y = outpts.T
+    
+    covariance = np.dot(X, Y.T)
+    
+    U, s, V = np.linalg.svd(covariance)
+    S = np.diag(s)
+    assert np.allclose(covariance, np.dot(U, np.dot(S, V)))
+    V = V.T
+    idmatrix = np.identity(3)
+    idmatrix[2, 2] = np.linalg.det(np.dot(V, U.T))
+    
+    R = np.dot(np.dot(V, idmatrix), U.T)
+    
+    t = outpt_mean.T - np.dot(R, inpt_mean)
+    T = np.eye(4)
+    T[:3,:3] = R
+    T[:3,3] = t
+    return T

@@ -62,7 +62,7 @@ def convertCloudFromOpen3dToRos(open3d_cloud, frame_id="odom"):
     # create ros_cloud
     return pc2.create_cloud(header, fields, cloud_data)
 
-def convertCloudFromRosToOpen3d(ros_cloud):
+def convertCloudFromRosToOpen3d(ros_cloud, bound_box = None):
     
     # Get cloud data from ros_cloud
     field_names=[field.name for field in ros_cloud.fields]
@@ -99,13 +99,21 @@ def convertCloudFromRosToOpen3d(ros_cloud):
     segmented_pointclouds = []
     # 0 for background, 1 for active object, 2 for passive object
     for class_idx in range(3):
-        object_idxs = np.where(label == class_idx)
+        object_idxs = None
+        if(bound_box is not None):
+            x = xyz[:,0]
+            y = xyz[:,1]
+            z = xyz[:,2]
+            object_idxs = np.where( (label == class_idx)& (x>=bound_box[0][0]) & (x <=bound_box[0][1]) & (y>=bound_box[1][0]) & (y<=bound_box[1][1]) & (z>=bound_box[2][0]) & (z<=bound_box[2][1])  )
+        else:
+            object_idxs = np.where(label == class_idx)
         object_xyz = xyz[object_idxs]
         object_rgb = rgb[object_idxs]
         object_pcd = open3d.geometry.PointCloud()
         object_pcd.points = open3d.utility.Vector3dVector( object_xyz)
         object_pcd.colors = open3d.utility.Vector3dVector( object_rgb/255.0 )
         segmented_pointclouds.append(object_pcd)
+    
 
 
     # return
