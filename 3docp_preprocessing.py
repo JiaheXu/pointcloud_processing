@@ -29,7 +29,7 @@ from numpy.linalg import inv
 from lib_cloud_conversion_between_Open3D_and_ROS import convertCloudFromRosToOpen3d
 from scipy.spatial.transform import Rotation
 import copy
-import fpsample
+#import fpsample
 
 # ICP
 from KD_tree import *
@@ -202,7 +202,7 @@ def visualize_icp_result(src, dst):
     vis.run()
     vis.destroy_window()
 
-def visualize_pcd_transform(pcd, transforms):
+def visualize_pcd_transform(pcd, transforms, object_pcd = None):
 
     coor_frame = o3d.geometry.TriangleMesh.create_coordinate_frame()
     vis = o3d.visualization.VisualizerWithKeyCallback()
@@ -222,6 +222,10 @@ def visualize_pcd_transform(pcd, transforms):
         new_mesh.scale(0.1, center=(trans[0][3], trans[1][3], trans[2][3]) )
         vis.add_geometry(new_mesh)
 
+    if(object_pcd is not None):
+        for trans in transforms:
+            new_object_pcd = copy.deepcopy(object_pcd).transform(trans)
+            vis.add_geometry(new_object_pcd)
     view_ctl.set_up((1, 0, 0))  # set the positive direction of the x-axis as the up direction
     view_ctl.set_front((-0.3, 0.0, 0.2))  # set the positive direction of the x-axis toward you
     view_ctl.set_lookat((0.0, 0.0, 0.3))  # set the original point as the center point of the window
@@ -341,11 +345,11 @@ def main():
     o3d_intrinsic = o3d.camera.PinholeCameraIntrinsic(256, 256, fxfy, fxfy, 128.0, 128.0)
 
     cam_extrinsics = []    
-    # cam_extrinsics.append( get_transform( [-0.336, 0.060, 0.455], [0.653, -0.616, 0.305, -0.317]) ) # rosrun tf tf_echo  map cam1 # need to change quat
+    cam_extrinsics.append( get_transform( [-0.336, 0.060, 0.455], [0.653, -0.616, 0.305, -0.317]) ) # rosrun tf tf_echo  map cam1 # need to change quat
     # cam_extrinsics.append( get_transform( [0.090, 0.582, 0.449], [-0.037, 0.895, -0.443, 0.031]) ) # real world cam param
     # cam_extrinsics.append( get_transform( [0.015, -0.524, 0.448], [0.887, 0.013, 0.001, -0.461]) ) # real world cam param
 
-    cam_extrinsics.append( get_transform( [-0.536, 0.060, 0.455], [0.653, -0.616, 0.305, -0.317]) ) #rosrun tf tf_echo  map cam1 # need to change quat
+    #cam_extrinsics.append( get_transform( [-0.536, 0.060, 0.455], [0.653, -0.616, 0.305, -0.317]) ) #rosrun tf tf_echo  map cam1 # need to change quat
     cam_extrinsics.append( get_transform( [-0.120, 0.582, 0.449], [-0.037, 0.895, -0.443, 0.031]) )
     cam_extrinsics.append( get_transform( [0.015, -0.624, 0.448], [0.887, 0.013, 0.001, -0.461]) )
     
@@ -357,25 +361,20 @@ def main():
     
     transform_data = np.load(args.traj_in, allow_pickle=True)
     # print("transform_data: ", len(transform_data))
-    const_T = get_transform(np.array([0., 0.05, -0.18]), np.array([0., 0., 0., 1.]) ) 
-    transforms = [ cam_extrinsics[0] @ get_transform(transform_data[0][0:3], transform_data[0][3:7] ) @ const_T]
+    const_T = get_transform(np.array([0., 0., 0.]), np.array([0., 0., 0., 1.]) ) 
+    transforms = [ cam_extrinsics[0] @ get_transform(transform_data[0][0:3], transform_data[0][3:7] ) ]
     for idx, transform in enumerate(transform_data):
-        if(  np.sum( np.abs(transform[0:3] - transforms[-1][0:3,3]) ) < 0.03):
+        new_T = cam_extrinsics[0] @ get_transform( transform[0:3], transform[3:7] )
+        if(new_T[0][3] < bound_box[0][0] or new_T[0][3] > bound_box[0][1] ):
             continue
-        transforms.append( cam_extrinsics[0] @ get_transform( transform[0:3], transform[3:7] ) @ const_T )
+        if(new_T[1][3] < bound_box[1][0] or new_T[1][3] > bound_box[1][1] ):
+            continue
+        if(new_T[2][3] < bound_box[2][0] or new_T[2][3] > bound_box[2][1] ):
+            continue
 
-
-
-    actions = []
-    dist = []
-    for idx in range(len(transforms) -1):
-        delta_t = get_delta_transform( transforms[idx+1], transforms[idx] )
-        dist.append(np.linalg.norm(delta_t[0:3]))
-        actions.append( copy.deepcopy(delta_t) )
-
-    traj_length = 8
-
-    fixed_length_traj= get_traj(dist, actions, transforms, traj_length)
+        if(  np.sum( np.abs( new_T[0:3,3] - transforms[-1][0:3,3]) ) < 0.03):
+            continue
+        transforms.append( new_T )
     
     ros_msg = None
     idx = 0
@@ -402,25 +401,30 @@ def main():
     object_pcd = object_pcd.farthest_point_down_sample(5000)
     start_pose_6d = get_start_pose(object_pcd)
 
-    delta_T = get_transform(start_pose_6d[0:3],  start_pose_6d[3:7]) @ inv( transforms[0] )
+
+
     start_pose_T = get_transform(start_pose_6d[0:3],  start_pose_6d[3:7])
-    
-    visualize_pcd_transform(cropped_pcd, transforms)
+
+    delta_T = inv( transforms[0] ) @ start_pose_T 
+
+    # visualize_pcd_transform(cropped_pcd, transforms)
 
     # A_transforms = copy.deepcopy(transforms)
     A_transforms = []
     for transform in transforms:
-        A_transform =  delta_T@ transform 
+        A_transform =  transform @ delta_T
         A_transforms.append(A_transform)
 
-    # visualize_pcd_transform(cropped_pcd, [ delta_T @ transforms[5], transforms[5] ])
+    # visualize_pcd_transform(cropped_pcd, [ transforms[0] @ delta_T, transforms[0] ])
 
     # visualize_pcd_transform(cropped_pcd, [start_pose_T, inv(delta_T)@start_pose_T , transforms[0]])
 
 
-    # visualize_pcd_transform(cropped_pcd, transforms)
+    # visualize_pcd_transform(cropped_pcd, transforms )
+    object_pcd = object_pcd.transform( inv(start_pose_T) )
+    visualize_pcd_transform(cropped_pcd, A_transforms, object_pcd )
 
-    # visualize_pcd_transform(cropped_pcd, A_transforms)
+    # visualize_pcd_transform(cropped_pcd, [start_pose_T])
 
     # visualize_pcd_delta_transform( cropped_pcd, delta_T, actions)
 
