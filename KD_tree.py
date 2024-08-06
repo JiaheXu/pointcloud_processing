@@ -152,7 +152,7 @@ def ICP( src, dst, init_rot = None, init_trans = None, brute_force = False ):
     
     closest_p = []
     
-    same_point_threshold = 0.005
+    same_point_threshold = 0.006
     
     found_match = False
     match_points = 0
@@ -175,7 +175,7 @@ def ICP( src, dst, init_rot = None, init_trans = None, brute_force = False ):
         print("match_points: ", match_points, " / ", Ns)
         c_k = np.array(closest_p)
         
-        if(i == int( iteration * 0.5) and  match_points <= int( 0.5 * Ns ) ):
+        if(i == int( iteration * 0.5) and  match_points <= int( 0.2 * Ns ) ):
             return found_match, match_points , F_regNew
         
         # Update guess

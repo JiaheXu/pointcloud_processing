@@ -324,11 +324,11 @@ def main():
     
     parser = argparse.ArgumentParser(description="extract interested object and traj from rosbag")
     # parser.add_argument("-b", "--bag_in", default="./data/yellow_handle_mug.bag",  help="Input ROS bag name.")
-    parser.add_argument("-b", "--bag_in", default="./segmented_mug_on_rack1.bag",  help="Input ROS bag name.")
+    parser.add_argument("-b", "--bag_in", default="./segmented_mug_on_rack/1.bag",  help="Input ROS bag name.")
     
     # parser.add_argument("-b", "--bag_in", default="./segmented_mug_on_rack2.bag",  help="Input ROS bag name.")
     # parser.add_argument("-b2", "--bag_in2", default="./segmented_mug_on_rack2.bag",  help="Input ROS bag name.")
-    parser.add_argument("-t", "--traj_in", default="./mug_on_rack1.npy",  help="Input trajectory file name.")
+    parser.add_argument("-t", "--traj_in", default="./segmented_mug_on_rack/1.npy",  help="Input trajectory file name.")
     parser.add_argument("-o", "--goal_object", default="mug", help="name of intereseted object")
     
     args = parser.parse_args()
@@ -346,14 +346,24 @@ def main():
 
     cam_extrinsics = []    
     cam_extrinsics.append( get_transform( [-0.336, 0.060, 0.455], [0.653, -0.616, 0.305, -0.317]) ) # rosrun tf tf_echo  map cam1 # need to change quat
-    # cam_extrinsics.append( get_transform( [0.090, 0.582, 0.449], [-0.037, 0.895, -0.443, 0.031]) ) # real world cam param
-    # cam_extrinsics.append( get_transform( [0.015, -0.524, 0.448], [0.887, 0.013, 0.001, -0.461]) ) # real world cam param
+    cam_extrinsics.append( get_transform( [0.090, 0.582, 0.449], [-0.037, 0.895, -0.443, 0.031]) ) # real world cam param
+    cam_extrinsics.append( get_transform( [0.015, -0.524, 0.448], [0.887, 0.013, 0.001, -0.461]) ) # real world cam param
 
-    #cam_extrinsics.append( get_transform( [-0.536, 0.060, 0.455], [0.653, -0.616, 0.305, -0.317]) ) #rosrun tf tf_echo  map cam1 # need to change quat
-    cam_extrinsics.append( get_transform( [-0.120, 0.582, 0.449], [-0.037, 0.895, -0.443, 0.031]) )
-    cam_extrinsics.append( get_transform( [0.015, -0.624, 0.448], [0.887, 0.013, 0.001, -0.461]) )
+    fixed_cam_extrinsics = []
+    cam1_const = Rotation.from_euler('zyx', [0., 90, -90], degrees=True)
+    cam1 = Rotation.from_euler('y', 45, degrees=True) * cam1_const
+    fixed_cam_extrinsics.append( get_transform( [-1.0, 0.0 , 0.5], cam1.as_quat() ))
+
+    cam2_const = Rotation.from_euler('zyx', [ -90., 0., 0.], degrees=True) * cam1_const
+    cam2 = Rotation.from_euler('x', 45, degrees=True) * cam2_const
+    fixed_cam_extrinsics.append( get_transform( [ 0., 1., 0.5], cam2.as_quat() ) )
     
-    bound_box = np.array( [ [-0.2, 0.35], [ -0.6 , 0.6], [ -0.0 , 0.4] ] )
+
+    cam3_const = Rotation.from_euler('zyx', [ 90., 0., 0.], degrees=True) * cam1_const
+    cam3 = Rotation.from_euler('x', -45, degrees=True) * cam3_const
+    fixed_cam_extrinsics.append( get_transform( [ 0., -1., 0.5], cam3.as_quat() ) )
+    
+    bound_box = np.array( [ [-0.2, 0.40], [ -0.5 , 0.5], [ -0.0 , 0.4] ] )
 
     obj_name = "mug"
     
@@ -372,7 +382,7 @@ def main():
         if(new_T[2][3] < bound_box[2][0] or new_T[2][3] > bound_box[2][1] ):
             continue
 
-        if(  np.sum( np.abs( new_T[0:3,3] - transforms[-1][0:3,3]) ) < 0.03):
+        if(  np.sum( np.abs( new_T[0:3,3] - transforms[-1][0:3,3]) ) < 0.01):
             continue
         transforms.append( new_T )
     
@@ -387,14 +397,16 @@ def main():
     xyz, rgb, label, pcd, segmented_pointclouds = convertCloudFromRosToOpen3d( ros_msg, bound_box)
 
     valid_xyz, valid_rgb, valid_label, cropped_pcd = cropping( xyz, rgb, label, bound_box )
-    cl, ind = cropped_pcd.remove_statistical_outlier(nb_neighbors=20,std_ratio=8.0)
+    cl, ind = cropped_pcd.remove_statistical_outlier(nb_neighbors=20,std_ratio=2.0)
     cropped_pcd = cropped_pcd.select_by_index(ind)
     valid_label = valid_label[ind]
+
+    visualize_pcd( cropped_pcd )
 
     # env_pcd = segmented_pointclouds[0]
     object_pcd = segmented_pointclouds[1]
     # print("env_pcd: ", env_pcd)
-    print("object_pcd: ", object_pcd)
+    # print("object_pcd: ", object_pcd)
     
     cl, ind = object_pcd.remove_statistical_outlier(nb_neighbors=10,std_ratio=8.0)
     object_pcd = object_pcd.select_by_index(ind)
@@ -416,57 +428,25 @@ def main():
         A_transforms.append(A_transform)
 
     # visualize_pcd_transform(cropped_pcd, [ transforms[0] @ delta_T, transforms[0] ])
-
     # visualize_pcd_transform(cropped_pcd, [start_pose_T, inv(delta_T)@start_pose_T , transforms[0]])
-
-
-    # visualize_pcd_transform(cropped_pcd, transforms )
     object_pcd = object_pcd.transform( inv(start_pose_T) )
-    visualize_pcd_transform(cropped_pcd, A_transforms, object_pcd )
+    
+    # visualize_pcd_transform(cropped_pcd, A_transforms)
+    # visualize_pcd_transform(cropped_pcd, A_transforms, object_pcd )
+
+
+
+
 
     # visualize_pcd_transform(cropped_pcd, [start_pose_T])
-
     # visualize_pcd_delta_transform( cropped_pcd, delta_T, actions)
-
     # downpcd_farthest = uniform_down_pcd.farthest_point_down_sample(5000)
-
     # visualize_pcd(segmented_pointclouds[0])
     # visualize_pcd(segmented_pointclouds[1])
     # visualize_pcd(segmented_pointclouds[2])
     
-    # ros_msg2 = None
-    # bagIn2 = rosbag.Bag(args.bag_in2, "r")
-    # idx = 0
-    # for topic, msg, t in bagIn2.read_messages(topics=["/segmented_pointcloud"]):
-    #     idx += 1
-    #     if( idx != 1 ):
-    #         continue
-    #     ros_msg2 = msg # for now, just need the first one
-    # xyz, rgb, label, pcd, segmented_pointclouds2 = convertCloudFromRosToOpen3d( ros_msg2, bound_box)
-    # visualize_pcd(segmented_pointclouds2[0])
-    # visualize_pcd(segmented_pointclouds2[1])
-    # visualize_pcd(segmented_pointclouds2[2])
 
-    # cl, ind = segmented_pointclouds[1].remove_statistical_outlier(nb_neighbors=20,std_ratio=4.0)
-    # start_pcd = segmented_pointclouds[1].select_by_index(ind)
-    # start_pcd = start_pcd.voxel_down_sample(voxel_size=0.003)
-    # start_pcd = start_pcd.farthest_point_down_sample(600)
 
-    # cl, ind = segmented_pointclouds2[1].remove_statistical_outlier(nb_neighbors=10,std_ratio=4.0)
-    # end_pcd = segmented_pointclouds2[1].select_by_index(ind)
-    # end_pcd = end_pcd.voxel_down_sample(voxel_size=0.003)
-    # end_pcd = end_pcd.farthest_point_down_sample(600)
-
-    # visualize_pcd(start_pcd)
-    # visualize_pcd(end_pcd)
-
-    # src = np.asarray(start_pcd.points)  
-    # dst = np.asarray(end_pcd.points)
-    # tmp_F_reg = np.eye(4)
-    # print("shape: ",src.shape, " ",dst.shape)
-    # found_match, tmp_match_points , tmp_F_reg = ICP( src, dst, tmp_F_reg[:3,:3], tmp_F_reg[:3,3]) # Todo, add RGB
-    # result = start_pcd.transform( inv(tmp_F_reg ) )
-    # visualize_icp_result( result, end_pcd)
 
 
 
@@ -476,19 +456,19 @@ def main():
 
     ###################################################################################### for image inputs
 
-    # p = Projector(cropped_pcd, label)
-    # for cam_idx, cam_extrinsic in enumerate(cam_extrinsics, 0):
-    #     rgb, depth, xyz, label, rgbd = p.project_to_rgbd(256, 256, cam_intrinsic, inv(cam_extrinsic), 1000,10)
+    p = Projector(cropped_pcd, label)
+    for cam_idx, fixed_cam_extrinsic in enumerate(fixed_cam_extrinsics, 0):
+        rgb, depth, xyz, label, rgbd = p.project_to_rgbd(256, 256, cam_intrinsic, inv(fixed_cam_extrinsic), 1000,10)
         
-    #     data = im.fromarray(rgb) 
-    #     data.save('cam{}_img{}.png'.format(cam_idx,idx))
-    #     final_pcd = o3d.geometry.PointCloud.create_from_rgbd_image(
-    #         rgbd,
-    #         o3d_intrinsic
-    #     )
-    #     final_pcd.transform( cam_extrinsic )
-    #     # visualize_pcd(final_pcd)
-    # bagIn.close()
+        data = im.fromarray(rgb) 
+        data.save('cam{}_img{}.png'.format(cam_idx,idx))
+        final_pcd = o3d.geometry.PointCloud.create_from_rgbd_image(
+            rgbd,
+            o3d_intrinsic
+        )
+        final_pcd.transform( fixed_cam_extrinsic )
+        # visualize_pcd(final_pcd)
+    
 
 if __name__ == "__main__":
     main()

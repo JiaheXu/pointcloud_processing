@@ -2,4 +2,5 @@
 ./mug
 ./pics
 *.bag
+*.npy
 __pycache__
