@@ -146,13 +146,13 @@ def ICP( src, dst, init_rot = None, init_trans = None, brute_force = False ):
     Ns = dst.shape[0]
     
     closest_p = []
-    iteration = 80
+    iteration = 100
     c_k = []
     old_pts = []
     
     closest_p = []
     
-    same_point_threshold = 0.006
+    same_point_threshold = 0.008
     
     found_match = False
     match_points = 0
@@ -200,7 +200,7 @@ def ICP( src, dst, init_rot = None, init_trans = None, brute_force = False ):
         if i == iteration - 1:
             print("MAX_ITER reached without finding stable results!")
         
-        if match_points > int( 0.7 * Ns ):
+        if match_points > int( 0.9 * Ns ):
             found_match = True
 
             

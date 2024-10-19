@@ -474,127 +474,139 @@ def main():
     cl, ind = object_pcd.remove_statistical_outlier(nb_neighbors=40,std_ratio=1.0)
     object_pcd = object_pcd.select_by_index(ind)
     object_pcd = object_pcd.farthest_point_down_sample(5000)
-    # object_pcd_downsample = object_pcd.voxel_down_sample(0.01)
+    object_pcd_downsample = object_pcd.voxel_down_sample(0.01)
 
-    start_pose_dir = "./{}_start_pose/".format(args.task) + "/" + "start_pose_7d_" + str(args.data_index) + ".npy"
-    start_pose_7d = np.load( start_pose_dir , allow_pickle = True)
-    start_pose_T = get_transform(start_pose_7d[0:3],  start_pose_7d[3:7])
-    delta_T = inv( transforms[0] ) @ start_pose_T 
+    # start_pose_7d = get_start_pose(object_pcd, use_min_z=True, consider_shape = True, standard_file = "./mug_standard.npy")
 
-    object_transforms = []
-    trajectory = []
-    for transform in transforms:
-        A_transform =  transform @ delta_T
-        object_transforms.append(A_transform)
-        rot = Rotation.from_matrix(A_transform[:3,:3])
-        quat = rot.as_quat()
-        openess = 0
-        trajectory.append(np.array( [A_transform[0][3], A_transform[1][3], A_transform[2][3], quat[0], quat[1], quat[2], quat[3], openess] ))  
+    visualize_pcd(cropped_pcd )
+    object_pcd_np = np.array(object_pcd.points)
+    np.save("object_pcd_{}".format(args.data_index), object_pcd_np)
+
+    # start_pose_T = get_transform(start_pose_7d[0:3],  start_pose_7d[3:7])
+    # delta_T = inv( transforms[0] ) @ start_pose_T 
+
+    # object_transforms = []
+    # trajectory = []
+    # for transform in transforms:
+    #     A_transform =  transform @ delta_T
+    #     object_transforms.append(A_transform)
+    #     rot = Rotation.from_matrix(A_transform[:3,:3])
+    #     quat = rot.as_quat()
+    #     openess = 0
+    #     trajectory.append(np.array( [A_transform[0][3], A_transform[1][3], A_transform[2][3], quat[0], quat[1], quat[2], quat[3], openess] ))  
                 
-    delta_trajectory = []
-    for idx, trans in enumerate(trajectory, 0):
-        if(idx == 0):
-            continue
-        delta_trans = get_transform(trajectory[idx][0:3], trajectory[idx][3:7]) @ inv( get_transform(trajectory[0][0:3], trajectory[0][3:7] ) )
-        delat_rot = Rotation.from_matrix(delta_trans[:3,:3])
-        delta_quat = delat_rot.as_quat()
-        openess = trajectory[idx][-1]
-        # print("delta_openess: ", delta_openess)
-        action = np.array( [delta_trans[0][3], delta_trans[1][3], delta_trans[2][3], delta_quat[0], delta_quat[1], delta_quat[2], delta_quat[3], openess] )
-        delta_trajectory.append( action )
+    # delta_trajectory = []
+    # for idx, trans in enumerate(trajectory, 0):
+    #     if(idx == 0):
+    #         continue
+    #     delta_trans = get_transform(trajectory[idx][0:3], trajectory[idx][3:7]) @ inv( get_transform(trajectory[0][0:3], trajectory[0][3:7] ) )
+    #     delat_rot = Rotation.from_matrix(delta_trans[:3,:3])
+    #     delta_quat = delat_rot.as_quat()
+    #     openess = trajectory[idx][-1]
+    #     # print("delta_openess: ", delta_openess)
+    #     action = np.array( [delta_trans[0][3], delta_trans[1][3], delta_trans[2][3], delta_quat[0], delta_quat[1], delta_quat[2], delta_quat[3], openess] )
+    #     delta_trajectory.append( action )
 
-    delta_transform = get_transform(trajectory[-1][0:3], trajectory[-1][3:7]) @ inv( get_transform(trajectory[0][0:3], trajectory[0][3:7] ) )
-    delat_rot = Rotation.from_matrix(delta_transform[:3,:3])
-    delta_quat = delat_rot.as_quat()
-    delta_openess = trajectory[-1][-1]
+    # delta_transform = get_transform(trajectory[-1][0:3], trajectory[-1][3:7]) @ inv( get_transform(trajectory[0][0:3], trajectory[0][3:7] ) )
+    # delat_rot = Rotation.from_matrix(delta_transform[:3,:3])
+    # delta_quat = delat_rot.as_quat()
+    # delta_openess = trajectory[-1][-1]
             
-    action = np.array( [delta_transform[0][3], delta_transform[1][3], delta_transform[2][3], delta_quat[0], delta_quat[1], delta_quat[2], delta_quat[3], delta_openess] )
-    action = action.reshape(1,8)
+    # action = np.array( [delta_transform[0][3], delta_transform[1][3], delta_transform[2][3], delta_quat[0], delta_quat[1], delta_quat[2], delta_quat[3], delta_openess] )
+    # action = action.reshape(1,8)
 
-    object_pcd = object_pcd.transform( inv(start_pose_T) )
-    object_pcd_np = np.array( object_pcd.points)
-    # visualize_pcd_delta_transform( cropped_pcd, start_pose_T, delta_trajectory)
+    # object_pcd = object_pcd.transform( inv(start_pose_T) )
+    # object_pcd_np = np.array( object_pcd.points)
+
+
+    # visualize_pcd_delta_transform( cropped_pcd, start_pose_T, delta_trajectory, object_pcd)
+
+
+    # downpcd_farthest = uniform_down_pcd.farthest_point_down_sample(5000)
+    # visualize_pcd(segmented_pointclouds[0])
+    # visualize_pcd(segmented_pointclouds[1])
+    # visualize_pcd(segmented_pointclouds[2])
     
     # whole env
     ###################################################################################### for image inputs
-    n_cam = 3
-    obs = np.zeros( (n_cam, 2, 3, 256, 256) )
+    # n_cam = 3
+    # obs = np.zeros( (n_cam, 2, 3, 256, 256) )
 
 
-    p = Projector(cropped_pcd, label)
-    for cam_idx, fixed_cam_extrinsic in enumerate(fixed_cam_extrinsics, 0):
-        rgb, depth, xyz, label, rgbd = p.project_to_rgbd(256, 256, cam_intrinsic, inv(fixed_cam_extrinsic), 1000,10)
+    # p = Projector(cropped_pcd, label)
+    # for cam_idx, fixed_cam_extrinsic in enumerate(fixed_cam_extrinsics, 0):
+    #     rgb, depth, xyz, label, rgbd = p.project_to_rgbd(256, 256, cam_intrinsic, inv(fixed_cam_extrinsic), 1000,10)
         
-        data = im.fromarray(rgb) 
-        save_fir = "./segmented_" + args.task +"/" 'data{}_cam{}_img{}.png'.format( args.data_index, cam_idx,idx)
-        data.save( save_fir )
-        final_pcd = o3d.geometry.PointCloud.create_from_rgbd_image(
-            rgbd,
-            o3d_intrinsic
-        )
-        final_pcd.transform( fixed_cam_extrinsic )
+    #     data = im.fromarray(rgb) 
+    #     save_fir = "./segmented_" + args.task +"/" 'data{}_cam{}_img{}.png'.format( args.data_index, cam_idx,idx)
+    #     data.save( save_fir )
+    #     final_pcd = o3d.geometry.PointCloud.create_from_rgbd_image(
+    #         rgbd,
+    #         o3d_intrinsic
+    #     )
+    #     final_pcd.transform( fixed_cam_extrinsic )
 
-        # debug_rgb = rgb/255.0
-        # debug_rgb = debug_rgb.reshape(-1,3)
-        # debug_xyz = xyz
-        # debug_xyz = debug_xyz.reshape(-1,3)
-        # debug_pcd = o3d.geometry.PointCloud()
-        # debug_pcd.points = o3d.utility.Vector3dVector( debug_xyz )
-        # debug_pcd.colors = o3d.utility.Vector3dVector( debug_rgb )
-        # visualize_pcd( debug_pcd )
+    #     # debug_rgb = rgb/255.0
+    #     # debug_rgb = debug_rgb.reshape(-1,3)
+    #     # debug_xyz = xyz
+    #     # debug_xyz = debug_xyz.reshape(-1,3)
+    #     # debug_pcd = o3d.geometry.PointCloud()
+    #     # debug_pcd.points = o3d.utility.Vector3dVector( debug_xyz )
+    #     # debug_pcd.colors = o3d.utility.Vector3dVector( debug_rgb )
+    #     # visualize_pcd( debug_pcd )
 
-        resized_img_data = np.transpose(rgb, (2, 0, 1) ).astype(float)
-        resized_img_data = resized_img_data / 255.0
-        resized_xyz = np.transpose(xyz, (2, 0, 1) ).astype(float)
+    #     resized_img_data = np.transpose(rgb, (2, 0, 1) ).astype(float)
+    #     resized_img_data = resized_img_data / 255.0
+    #     resized_xyz = np.transpose(xyz, (2, 0, 1) ).astype(float)
 
-        obs[cam_idx][0] = resized_img_data
-        obs[cam_idx][1] = resized_xyz
-        # visualize_pcd(final_pcd)
+    #     obs[cam_idx][0] = resized_img_data
+    #     obs[cam_idx][1] = resized_xyz
+    #     # visualize_pcd(final_pcd)
     
 
-    camera_dicts = []
-    frame_ids = [0] # for now, only use the observation in the beginning
+    # camera_dicts = []
+    # frame_ids = [0] # for now, only use the observation in the beginning
 
-    gripper = copy.deepcopy( trajectory[0])
-    gripper = gripper.reshape(1,8)
+    # gripper = copy.deepcopy( trajectory[0])
+    # gripper = gripper.reshape(1,8)
     
-    trajectories = np.array(delta_trajectory)
-    trajectories = trajectories.reshape(-1,8)
-    # print("trajectories: ", trajectories.shape)
-    episode = []
-    episode.append(frame_ids) # 0
+    # trajectories = np.array(delta_trajectory)
+    # trajectories = trajectories.reshape(-1,8)
+    # # print("trajectories: ", trajectories.shape)
+    # episode = []
+    # episode.append(frame_ids) # 0
 
 
-    obs = obs.astype(float)
-    obs_tensors = [ torch.from_numpy(obs) ]
-    episode.append(obs_tensors) # 1
+    # obs = obs.astype(float)
+    # obs_tensors = [ torch.from_numpy(obs) ]
+    # episode.append(obs_tensors) # 1
     
-    action = action.astype(float)
-    action_tensor =  [ torch.from_numpy(action) ]
-    episode.append(action_tensor) # 2
+    # action = action.astype(float)
+    # action_tensor =  [ torch.from_numpy(action) ]
+    # episode.append(action_tensor) # 2
 
-    episode.append(camera_dicts) # 3
+    # episode.append(camera_dicts) # 3
 
-    gripper = gripper.astype(float)
-    gripper_tensor = [ torch.from_numpy(gripper) ]
-    episode.append(gripper_tensor) # 4
+    # gripper = gripper.astype(float)
+    # gripper_tensor = [ torch.from_numpy(gripper) ]
+    # episode.append(gripper_tensor) # 4
 
-    trajectories = trajectories.astype(float)
-    trajectories_tensor = [ torch.from_numpy(trajectories) ]
-    episode.append(trajectories_tensor) # 5
+    # trajectories = trajectories.astype(float)
+    # trajectories_tensor = [ torch.from_numpy(trajectories) ]
+    # episode.append(trajectories_tensor) # 5
 
-    object_pcd_np = np.array(object_pcd.points)
-    episode.append(object_pcd_np) # 6
+    # object_pcd_np = np.array(object_pcd.points)
+    # episode.append(object_pcd_np) # 6
 
-    processed_data_dir = "./processed"
-    save_data_dir = processed_data_dir + '/' + args.task
-    if ( os.path.isdir(processed_data_dir) == False ):
-        os.mkdir(processed_data_dir)
-    if ( os.path.isdir(save_data_dir) == False ):
-        os.mkdir(save_data_dir)
-    args.task + "/" + str(args.data_index)
-    np.save("{}/{}/ep{}".format(processed_data_dir, args.task , args.data_index), episode)
-    print("finished ", args.task, " data: ", args.data_index)
+    # processed_data_dir = "./processed"
+    # save_data_dir = processed_data_dir + '/' + args.task
+    # if ( os.path.isdir(processed_data_dir) == False ):
+    #     os.mkdir(processed_data_dir)
+    # if ( os.path.isdir(save_data_dir) == False ):
+    #     os.mkdir(save_data_dir)
+    # args.task + "/" + str(args.data_index)
+    # np.save("{}/{}/ep{}".format(processed_data_dir, args.task , args.data_index), episode)
+    # print("finished ", args.task, " data: ", args.data_index)
 
 
 if __name__ == "__main__":
